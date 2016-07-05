@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for
 import time
 import datetime
+import arrow
 
 app = Flask(__name__)
 app.debug = True
@@ -28,19 +29,29 @@ def lab_temp():
 
 @app.route("/lab_env_db", methods=['GET'])
 def lab_env_db():
-    temperatures, humidities, from_date_str, to_date_str = get_records()
-    return render_template("lab_env_db.html", temp       = temperatures, 
-                                              hum        = humidities,
+    temperatures, humidities, timezone, from_date_str, to_date_str = get_records()
+    print temperatures[0]
+
+    time_adjusted_temperatures = []
+    time_adjusted_humidities   = []
+    for temp,hum in zip(temperatures,humidities):
+        local_timedate = arrow.get(temp[0], "YYYY-MM-DD HH:mm").to(timezone)
+        time_adjusted_temperatures.append([local_timedate.format('YYYY-MM-DD HH:mm'), round(temp[2],2)])
+        local_timedate = arrow.get(hum[0], "YYYY-MM-DD HH:mm").to(timezone)
+        time_adjusted_humidities.append([local_timedate.format('YYYY-MM-DD HH:mm'), round(hum[2],2)])
+    return render_template("lab_env_db.html", temp       = time_adjusted_temperatures, 
+                                              hum        = time_adjusted_humidities,
                                               from_date  = from_date_str,
                                               to_date    = to_date_str,
                                               temp_items = len(temperatures),
                                               hum_items  = len(humidities))
 
 def get_records():
+    import sqlite3
     from_date_str = request.args.get('from',time.strftime("%Y-%m-%d 00:00"))
     to_date_str   = request.args.get('to',time.strftime("%Y-%m-%d %H:%M"))
+    timezone      = request.args.get('timezone','Etc/UTC')
     range_h_form  = request.args.get('range_h','')
-
     range_h_int   = "nan"
 
     try:
@@ -53,20 +64,25 @@ def get_records():
     if not validate_date(to_date_str):
         to_date_str   = time.strftime("%Y-%m-%d %H:%M")
 
+    from_date_obj = datetime.datetime.strptime(from_date_str, '%Y-%m-%d %H:%M')
+    to_date_obj   = datetime.datetime.strptime(to_date_str, '%Y-%m-%d %H:%M')
+
     if isinstance(range_h_int,int):
-        time_now      = datetime.datetime.now()
-        time_from     = time_now - datetime.timedelta(hours=range_h_int)
-        time_to       = time_now
-        from_date_str = time_from.strftime("%Y-%m-%d %H:%M")
-        to_date_str   = time_to.strftime("%Y-%m-%d %H:%M")
+        arrow_time_from = arrow.utcnow().replace(hours=-range_h_int)
+        arrow_time_to   = arrow.utcnow()
+        from_date_utc   = arrow_time_from.strftime("%Y-%m-%d %H:%M")
+        to_date_utc     = arrow_time_to.strftime("%Y-%m-%d %H:%M")
+        from_date_str   = arrow_time_from.to(timezone).strftime("%Y-%m-%d %H:%M")
+        to_date_str     = arrow_time_to.to(timezone).strftime("%Y-%m-%d %H:%M")
+    else:
+        from_date_utc = arrow.get(from_date_obj, timezone).to('Etc/UTC').strftime("%Y-%m-%d %H:%M")
+        to_date_utc   = arrow.get(to_date_obj, timezone).to('Etc/UTC').strftime("%Y-%m-%d %H:%M")
 
     query_start = 'SELECT * FROM'
-    query_end   = 'WHERE rDatetime BETWEEN \"{}\" AND \"{}\" ORDER BY rDatetime DESC'.format(from_date_str, to_date_str)
+    query_end   = 'WHERE rDatetime BETWEEN \"{}\" AND \"{}\" ORDER BY rDatetime DESC'.format(from_date_utc.format('YYYY-MM-DD HH:mm'), to_date_utc.format('YYYY-MM-DD HH:mm'))
 
     temp_query_str = query_start + ' Temperatures ' + query_end
     hum_query_str  = query_start + ' Humidities ' + query_end
-
-    import sqlite3
 
     conn = sqlite3.connect('/var/www/lab_app/lab_app.db')
     curs = conn.cursor()
@@ -78,7 +94,7 @@ def get_records():
     humidities = curs.fetchall()
 
     conn.close()
-    return [temperatures, humidities, from_date_str, to_date_str]
+    return [temperatures, humidities, timezone, from_date_str, to_date_str]
 
 def validate_date(d):
     try:
