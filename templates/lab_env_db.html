@@ -143,6 +143,11 @@
         format:'Y-m-d H:i',
         defaultDate:'{{to_date}}'
       });
+    jQuery('#submit_button').click(function() {
+      timezone = jstz.determine();
+      jQuery(".timezone").val(timezone.name());
+      jQuery("#datetime_range").submit();
+    });
   </script>
 
   <script>
