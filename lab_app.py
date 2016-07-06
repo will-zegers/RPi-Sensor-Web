@@ -30,7 +30,6 @@ def lab_temp():
 @app.route("/lab_env_db", methods=['GET'])
 def lab_env_db():
     temperatures, humidities, timezone, from_date_str, to_date_str = get_records()
-    print temperatures[0]
 
     time_adjusted_temperatures = []
     time_adjusted_humidities   = []
@@ -39,12 +38,14 @@ def lab_env_db():
         time_adjusted_temperatures.append([local_timedate.format('YYYY-MM-DD HH:mm'), round(temp[2],2)])
         local_timedate = arrow.get(hum[0], "YYYY-MM-DD HH:mm").to(timezone)
         time_adjusted_humidities.append([local_timedate.format('YYYY-MM-DD HH:mm'), round(hum[2],2)])
-    return render_template("lab_env_db.html", temp       = time_adjusted_temperatures, 
-                                              hum        = time_adjusted_humidities,
-                                              from_date  = from_date_str,
-                                              to_date    = to_date_str,
-                                              temp_items = len(temperatures),
-                                              hum_items  = len(humidities))
+    return render_template("lab_env_db.html", timezone     = timezone,
+                                              temp         = time_adjusted_temperatures, 
+                                              hum          = time_adjusted_humidities,
+                                              from_date    = from_date_str,
+                                              to_date      = to_date_str,
+                                              temp_items   = len(temperatures),
+                                              hum_items    = len(humidities),
+                                              query_string = request.query_string)
 
 def get_records():
     import sqlite3
@@ -102,6 +103,62 @@ def validate_date(d):
         return True
     except ValueError:
         return False
+
+@app.route("/to_plotly", methods=['GET'])
+def to_plotly():
+    import plotly.plotly as py
+    from plotly.graph_objs import *
+
+    temperatures, humidities, timezone, from_date_str, to_date_str = get_records()
+
+    time_series_adjusted_temperatures = []
+    time_series_adjusted_humidities   = []
+    time_series_temperature_values   = []
+    time_series_humidity_values       = []
+
+    for record in temperatures:
+        local_timedate = arrow.get(record[0], "YYYY-MM-DD HH:mm").to(timezone)
+        time_series_adjusted_temperatures.append(local_timedate.format('YYYY-MM-DD HH:mm'))
+        time_series_temperature_values.append(round(record[2],2))
+
+    for record in humidities:
+        local_timedate = arrow.get(record[0], "YYYY-MM-DD HH:mm").to(timezone)
+        time_series_adjusted_humidities.append(local_timedate.format('YYYY-MM-DD HH:mm'))
+        time_series_humidity_values.append(round(record[2],2))
+
+    temp = Scatter(
+                   x=time_series_adjusted_temperatures,
+                   y=time_series_temperature_values,
+                   name='Temperature')
+
+    hum = Scatter(
+                  x=time_series_adjusted_humidities,
+                  y=time_series_humidity_values,
+                  name='Humidity',
+                  yaxis='y2')
+
+    data = Data([temp,hum])
+    
+    layout = Layout(
+                    title="Temperature and humiditiy in La Jolla",
+                    xaxis=XAxis(
+                        type='date',
+                        autorange=True),
+                    yaxis=YAxis(
+                        title='Celcius',
+                        type='linear',
+                        autorange=True),
+                    yaxis2=YAxis(
+                        title='Percent',
+                        type='linear',
+                        autorange=True,
+                        overlaying='y',
+                        side='right'))
+
+    fig = Figure(data=data, layout=layout)
+    plot_url = py.plot(fig, filename='lab_temp_hum')
+
+    return plot_url
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=8080)
